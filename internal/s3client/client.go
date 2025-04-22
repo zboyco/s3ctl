@@ -20,16 +20,23 @@ type Client struct {
 }
 
 // NewClient 创建 S3 客户端
-func NewClient() (*Client, error) {
+func NewClient(v2 bool) (*Client, error) {
 	// 获取配置
 	cfg, err := config.GetS3Config()
 	if err != nil {
 		return nil, fmt.Errorf("获取配置失败: %w", err)
 	}
 
+	var creds *credentials.Credentials
+	if v2 {
+		creds = credentials.NewStaticV2(cfg.AccessKeyID, cfg.SecretAccessKey, "")
+	} else {
+		creds = credentials.NewStaticV4(cfg.AccessKeyID, cfg.SecretAccessKey, "")
+	}
+
 	// 创建 minio 客户端
 	client, err := minio.New(cfg.Endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.AccessKeyID, cfg.SecretAccessKey, ""),
+		Creds:  creds,
 		Secure: cfg.UseSSL,
 	})
 	if err != nil {
@@ -48,6 +55,64 @@ func (c *Client) ListBuckets() ([]minio.BucketInfo, error) {
 		return nil, fmt.Errorf("列出桶失败: %w", err)
 	}
 	return buckets, nil
+}
+
+// MakeBucket 创建存储桶
+func (c *Client) MakeBucket(bucketName string) error {
+	ctx := context.Background()
+	err := c.client.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{})
+	if err != nil {
+		// 检查桶是否已存在
+		exists, errBucketExists := c.client.BucketExists(ctx, bucketName)
+		if errBucketExists == nil && exists {
+			fmt.Printf("存储桶 '%s' 已存在\n", bucketName)
+			return nil
+		}
+		return fmt.Errorf("创建存储桶失败: %w", err)
+	}
+	fmt.Printf("存储桶 '%s' 创建成功\n", bucketName)
+	return nil
+}
+
+// RemoveBucket 删除存储桶
+func (c *Client) RemoveBucket(bucketName string) error {
+	ctx := context.Background()
+	// 检查桶是否为空
+	isEmpty, err := c.IsBucketEmpty(bucketName)
+	if err != nil {
+		return fmt.Errorf("检查存储桶状态失败: %w", err)
+	}
+	if !isEmpty {
+		fmt.Printf("存储桶 '%s' 不为空，无法删除\n", bucketName)
+		return nil
+	}
+
+	err = c.client.RemoveBucket(ctx, bucketName)
+	if err != nil {
+		return fmt.Errorf("删除存储桶失败: %w", err)
+	}
+	fmt.Printf("存储桶 '%s' 删除成功\n", bucketName)
+	return nil
+}
+
+// IsBucketEmpty 检查存储桶是否为空
+func (c *Client) IsBucketEmpty(bucketName string) (bool, error) {
+	// 使用 ListObjects 只获取一个对象来判断是否为空
+	objectsCh := c.ListObjects(bucketName, "", false, false, 1) // 添加 maxKeys 参数
+	_, ok := <-objectsCh                                        // 尝试读取一个对象
+	if ok {
+		// 如果能读到对象（即使是错误对象），说明通道未立即关闭，可能非空或出错
+		// 需要进一步检查错误
+		obj := <-objectsCh
+		if obj.Err != nil {
+			// 如果列出对象时出错，返回错误
+			return false, fmt.Errorf("列出对象以检查存储桶是否为空时出错: %w", obj.Err)
+		}
+		// 如果能读到对象且无错误，说明桶不为空
+		return false, nil
+	}
+	// 如果通道立即关闭，说明桶为空
+	return true, nil
 }
 
 // UploadFile 上传文件
@@ -142,7 +207,7 @@ func (c *Client) UploadDirectory(bucketName, dirPath, prefix string, isPublic bo
 }
 
 // GenerateURL 生成访问 URL
-func (c *Client) GenerateURL(bucketName, objectName string, expires time.Duration, useV2 bool) (string, error) {
+func (c *Client) GenerateURL(bucketName, objectName string, expires time.Duration) (string, error) {
 	// 检查对象是否存在
 	_, err := c.client.StatObject(context.Background(), bucketName, objectName, minio.StatObjectOptions{})
 	if err != nil {
@@ -150,12 +215,7 @@ func (c *Client) GenerateURL(bucketName, objectName string, expires time.Duratio
 	}
 
 	var reqParams url.Values
-	if useV2 {
-		// minio-go/v7 不支持 V2 签名，使用 V4 代替并添加警告
-		fmt.Println("警告: 当前版本不支持 V2 签名，将使用 V4 签名代替")
-	}
-
-	// 使用 V4 签名
+	// 签名
 	presignedURL, err := c.client.PresignedGetObject(context.Background(), bucketName, objectName, expires, reqParams)
 	if err != nil {
 		return "", fmt.Errorf("生成签名 URL 失败: %w", err)
@@ -164,14 +224,19 @@ func (c *Client) GenerateURL(bucketName, objectName string, expires time.Duratio
 }
 
 // ListObjects 列出对象
-func (c *Client) ListObjects(bucketName, prefix string, recursive bool, onlyFolders bool) <-chan minio.ObjectInfo {
+func (c *Client) ListObjects(bucketName, prefix string, recursive bool, onlyFolders bool, maxKeys ...int) <-chan minio.ObjectInfo {
 	ctx := context.Background()
 
 	opts := minio.ListObjectsOptions{
 		Prefix:    prefix,
 		Recursive: recursive,
-		UseV1:     true,
-		MaxKeys:   1000,
+		UseV1:     true, // 保持 UseV1 以便与现有逻辑兼容
+	}
+	// 如果提供了 maxKeys，则设置它
+	if len(maxKeys) > 0 && maxKeys[0] > 0 {
+		opts.MaxKeys = maxKeys[0]
+	} else {
+		opts.MaxKeys = 1000 // 默认值
 	}
 
 	objects := make(chan minio.ObjectInfo, 1)
@@ -180,8 +245,8 @@ func (c *Client) ListObjects(bucketName, prefix string, recursive bool, onlyFold
 
 		for object := range c.client.ListObjects(ctx, bucketName, opts) {
 			if object.Err != nil {
-				objects <- object
-				return
+				objects <- object // 发送错误信息
+				return            // 出错后停止
 			}
 
 			// 如果只查看文件夹，则跳过文件

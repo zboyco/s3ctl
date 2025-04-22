@@ -12,7 +12,7 @@ import (
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "创建默认配置文件",
-	Long:  `创建默认配置文件到 ~/.s3ctl.yaml，如果文件已存在则不会覆盖`,
+	Long:  `创建默认配置文件到 ~/.s3ctl，如果文件已存在则不会覆盖`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// 获取用户主目录
 		home, err := os.UserHomeDir()
@@ -21,7 +21,7 @@ var initCmd = &cobra.Command{
 		}
 
 		// 设置配置文件路径
-		configFile := filepath.Join(home, ".s3ctl.yaml")
+		configFile := filepath.Join(home, ".s3ctl")
 
 		// 检查配置文件是否存在
 		if _, err := os.Stat(configFile); err == nil {

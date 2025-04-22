@@ -23,7 +23,7 @@ var urlCmd = &cobra.Command{
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// 创建 S3 客户端
-		client, err := s3client.NewClient()
+		client, err := s3client.NewClient(useV2)
 		if err != nil {
 			return err
 		}
@@ -44,7 +44,7 @@ var urlCmd = &cobra.Command{
 
 		// 生成访问 URL
 		// 确保 GenerateURL 方法的参数与签名匹配
-		url, err := client.GenerateURL(bucketName, objectPath, expiry, useV2)
+		url, err := client.GenerateURL(bucketName, objectPath, expiry)
 		if err != nil {
 			return err
 		}

@@ -25,7 +25,7 @@ var listCmd = &cobra.Command{
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// 创建 S3 客户端
-		client, err := s3client.NewClient()
+		client, err := s3client.NewClient(false)
 		if err != nil {
 			return err
 		}
@@ -88,7 +88,8 @@ func listAllBuckets(client *s3client.Client, prefix string) error {
 		// 添加 s3:// 前缀
 		bucketName := fmt.Sprintf("s3://%s/", bucket.Name)
 		if strings.HasPrefix(bucketName, prefix) {
-			fmt.Println(bucketName)
+			// 打印修改时间，大小，路径，占用固定宽度
+			fmt.Printf("%-22s %-11s %s\n", "", "BUCKET", bucketName)
 		}
 	}
 

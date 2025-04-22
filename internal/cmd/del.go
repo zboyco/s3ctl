@@ -15,7 +15,7 @@ var delCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// 创建 S3 客户端
-		client, err := s3client.NewClient()
+		client, err := s3client.NewClient(false)
 		if err != nil {
 			return err
 		}

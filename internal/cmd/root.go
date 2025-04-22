@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/zboyco/s3ctl" // 导入 s3ctl 包
 )
 
 var rootCmd = &cobra.Command{
@@ -14,6 +15,8 @@ var rootCmd = &cobra.Command{
 	Short: "s3ctl 是一个用于操作 S3 存储的命令行工具",
 	Long: `s3ctl 是一个基于 minio-go 的命令行工具，用于操作 S3 兼容的对象存储。
 支持文件上传、生成访问链接和查看文件列表等功能。`,
+	// 添加 Version 字段，Cobra 会自动处理 --version 标志
+	// Version: s3ctl.Version(), // 直接在这里设置也可以，但通常在 init 中设置
 }
 
 // Execute 执行根命令
@@ -22,12 +25,17 @@ func Execute() error {
 }
 
 func init() {
+	// 设置版本号
+	rootCmd.Version = s3ctl.Version() // 从 s3ctl 包获取版本信息
+
 	// 添加子命令
 	rootCmd.AddCommand(putCmd)
 	rootCmd.AddCommand(urlCmd)
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(delCmd)
+	rootCmd.AddCommand(mbCmd)
+	rootCmd.AddCommand(rbCmd)
 
 	// 添加根命令的 PersistentPreRunE 函数
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
@@ -49,7 +57,8 @@ func initConfig() error {
 	}
 
 	// 设置配置文件路径
-	configFile := filepath.Join(home, ".s3ctl.yaml")
+	configFile := filepath.Join(home, ".s3ctl")
+	viper.SetConfigType("yaml")
 	viper.SetConfigFile(configFile)
 
 	// 读取配置文件
