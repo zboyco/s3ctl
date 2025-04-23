@@ -1,0 +1,90 @@
+name: Build and Release
+on:
+  push:
+    tags:
+      - "*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Go Version
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.24.2
+
+      - name: Cross-compile
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o ./linux-amd64/s3ctl ./cmd/s3ctl
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "-s -w" -o ./linux-arm64/s3ctl ./cmd/s3ctl
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w" -o ./darwin-amd64/s3ctl ./cmd/s3ctl
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w" -o ./darwin-arm64/s3ctl ./cmd/s3ctl
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o ./windows-amd64/s3ctl ./cmd/s3ctl
+
+          tar -czvf s3ctl-linux-amd64.tar.gz -C ./linux-amd64/ .
+          tar -czvf s3ctl-linux-arm64.tar.gz -C ./linux-arm64/ .
+          tar -czvf s3ctl-darwin-amd64.tar.gz -C ./darwin-amd64/ .
+          tar -czvf s3ctl-darwin-arm64.tar.gz -C ./darwin-arm64/ .
+          tar -czvf s3ctl-windows-amd64.tar.gz -C ./windows-amd64/ .
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          body: |
+            Changes in this release:
+            - A command-line tool for interacting with S3-compatible object storage.
+
+      - name: Upload Release Asset
+        id: upload-release-asset-linux-amd64
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./s3ctl-linux-amd64.tar.gz
+          asset_name: s3ctl-linux-amd64.tar.gz
+          asset_content_type: application/octet-stream
+
+      - name: Upload Release Asset
+        id: upload-release-asset-linux-arm64
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./s3ctl-linux-arm64.tar.gz
+          asset_name: s3ctl-linux-arm64.tar.gz
+          asset_content_type: application/octet-stream
+
+      - name: Upload Release Asset
+        id: upload-release-asset-darwin-amd64
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./s3ctl-darwin-amd64.tar.gz
+          asset_name: s3ctl-darwin-amd64.tar.gz
+          asset_content_type: application/octet-stream
+
+      - name: Upload Release Asset
+        id: upload-release-asset-darwin-arm64
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./s3ctl-darwin-arm64.tar.gz
+          asset_name: s3ctl-darwin-arm64.tar.gz
+          asset_content_type: application/octet-stream
+
+      - name: Upload Release Asset
+        id: upload-release-asset-windows-amd64
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./s3ctl-windows-amd64.tar.gz
+          asset_name: s3ctl-windows-amd64.tar.gz
+          asset_content_type: application/octet-stream
