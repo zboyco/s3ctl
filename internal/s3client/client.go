@@ -24,7 +24,7 @@ type Client struct {
 // NewClient 创建 S3 客户端
 func NewClient(ctx context.Context, v2 bool) (*Client, error) {
 	// 获取配置
-	cfg, err := config.GetS3Config()
+	cfg, err := config.GetCurrentS3ConfigItem()
 	if err != nil {
 		return nil, fmt.Errorf("获取配置失败: %w", err)
 	}

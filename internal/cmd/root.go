@@ -33,15 +33,26 @@ func init() {
 	rootCmd.AddCommand(putCmd)
 	rootCmd.AddCommand(urlCmd)
 	rootCmd.AddCommand(listCmd)
-	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(delCmd)
 	rootCmd.AddCommand(mbCmd)
 	rootCmd.AddCommand(rbCmd)
-	rootCmd.AddCommand(infoCmd)
+	rootCmd.AddCommand(configCmd)
+
+	// 禁用 help 和 completion 命令
+	rootCmd.SetHelpCommand(&cobra.Command{
+		Hidden: true,
+	})
+
+	// 禁用自动生成的 completion 命令
+	rootCmd.CompletionOptions.DisableDefaultCmd = true
 
 	// 添加根命令的 PersistentPreRunE 函数
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
-		// 如果是 init 命令，跳过配置文件检查
+		// 如果是 config init 命令，跳过配置文件检查
+		if cmd.Name() == "config" && len(args) > 0 && args[0] == "init" {
+			return nil
+		}
+		// 如果是 init 子命令，跳过配置文件检查
 		if cmd.Name() == "init" {
 			return nil
 		}
@@ -67,7 +78,13 @@ func initConfig() error {
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 			// 配置文件不存在，提示用户使用 init 命令创建
-			return fmt.Errorf("配置文件不存在: %s\n请使用 's3ctl init' 命令创建默认配置文件", configFile)
+			return fmt.Errorf("配置文件不存在: %s\n请使用 's3ctl config init' 命令创建默认配置文件", configFile)
+		} else if pathErr, ok := err.(*os.PathError); ok {
+			// 检查是否是因为文件不存在
+			if os.IsNotExist(pathErr) {
+				return fmt.Errorf("配置文件不存在: %s\n请使用 's3ctl config init' 命令创建默认配置文件", configFile)
+			}
+			return fmt.Errorf("读取配置文件失败: %w", err)
 		} else {
 			return fmt.Errorf("读取配置文件失败: %w", err)
 		}
