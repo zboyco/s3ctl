@@ -4,14 +4,15 @@
 
 ## 功能
 
-*   初始化配置
+*   初始化配置  
+*   管理多个 S3 配置
 *   列出存储桶 (Buckets)
 *   创建存储桶 (Make Bucket)
 *   删除存储桶 (Remove Bucket)
 *   列出存储桶中的对象 (Objects)
 *   上传文件或目录
 *   删除对象或目录下的对象
-*   生成对象的预签名访问 URL
+*   生成对象的预签名访问 URL  
 
 ## 安装
 
@@ -28,17 +29,25 @@ go install github.com/zboyco/s3ctl/cmd/s3ctl@latest
 首次使用前，你需要初始化配置文件。运行以下命令会在你的用户主目录下创建默认配置文件 `~/.s3ctl`:
 
 ```bash
-s3ctl init
+s3ctl config init
 ```
 
 命令执行后，会生成类似以下的配置文件：
 
 ```yaml:~/.s3ctl
 # s3ctl 配置文件
-endpoint: "play.min.io"
-access_key_id: "THISISKEYID"
-secret_access_key: "THISISSECRETKEY"
-use_ssl: true
+current: default
+services:
+  default:
+    endpoint: "play.min.io"
+    access_key_id: "THISISKEYID"
+    secret_access_key: "THISISSECRETKEY"
+    use_ssl: true
+  example:
+    endpoint: "s3.example.com"
+    access_key_id: "EXAMPLEKEYID"
+    secret_access_key: "EXAMPLESECRETKEY"
+    use_ssl: true
 ```
 
 请根据你的 S3 存储提供商信息修改此文件：
@@ -52,13 +61,22 @@ use_ssl: true
 
 `s3ctl` 使用 `s3://bucket/object` 的格式来指定 S3 路径。
 
-### 1. 初始化配置
+### 1. 配置管理 (config)
 
-如上所述，使用 `init` 命令创建默认配置文件。
+*   初始化配置文件:
+    ```bash
+    s3ctl config init
+    ```
 
-```bash
-s3ctl init
-```
+*   查看当前配置信息:
+    ```bash
+    s3ctl config list
+    ```
+
+*   切换到指定配置:
+    ```bash
+    s3ctl config use [配置名]
+    ```
 
 ### 2. 列出存储桶或对象 (ls)
 
