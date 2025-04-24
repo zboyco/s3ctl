@@ -17,10 +17,12 @@ import (
 // Client S3 客户端
 type Client struct {
 	client *minio.Client
+
+	ctx context.Context
 }
 
 // NewClient 创建 S3 客户端
-func NewClient(v2 bool) (*Client, error) {
+func NewClient(ctx context.Context, v2 bool) (*Client, error) {
 	// 获取配置
 	cfg, err := config.GetS3Config()
 	if err != nil {
@@ -45,12 +47,13 @@ func NewClient(v2 bool) (*Client, error) {
 
 	return &Client{
 		client: client,
+		ctx:    ctx,
 	}, nil
 }
 
 // ListBuckets 列出所有桶
 func (c *Client) ListBuckets() ([]minio.BucketInfo, error) {
-	buckets, err := c.client.ListBuckets(context.Background())
+	buckets, err := c.client.ListBuckets(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("列出桶失败: %w", err)
 	}
@@ -59,11 +62,10 @@ func (c *Client) ListBuckets() ([]minio.BucketInfo, error) {
 
 // MakeBucket 创建存储桶
 func (c *Client) MakeBucket(bucketName string) error {
-	ctx := context.Background()
-	err := c.client.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{})
+	err := c.client.MakeBucket(c.ctx, bucketName, minio.MakeBucketOptions{})
 	if err != nil {
 		// 检查桶是否已存在
-		exists, errBucketExists := c.client.BucketExists(ctx, bucketName)
+		exists, errBucketExists := c.client.BucketExists(c.ctx, bucketName)
 		if errBucketExists == nil && exists {
 			fmt.Printf("存储桶 '%s' 已存在\n", bucketName)
 			return nil
@@ -76,7 +78,6 @@ func (c *Client) MakeBucket(bucketName string) error {
 
 // RemoveBucket 删除存储桶
 func (c *Client) RemoveBucket(bucketName string) error {
-	ctx := context.Background()
 	// 检查桶是否为空
 	isEmpty, err := c.IsBucketEmpty(bucketName)
 	if err != nil {
@@ -87,7 +88,7 @@ func (c *Client) RemoveBucket(bucketName string) error {
 		return nil
 	}
 
-	err = c.client.RemoveBucket(ctx, bucketName)
+	err = c.client.RemoveBucket(c.ctx, bucketName)
 	if err != nil {
 		return fmt.Errorf("删除存储桶失败: %w", err)
 	}
@@ -148,7 +149,7 @@ func (c *Client) UploadFile(bucketName, filePath, objectName string, isPublic bo
 
 	// 上传文件
 	_, err = c.client.PutObject(
-		context.Background(),
+		c.ctx,
 		bucketName,
 		objectName,
 		file,
@@ -209,14 +210,14 @@ func (c *Client) UploadDirectory(bucketName, dirPath, prefix string, isPublic bo
 // GenerateURL 生成访问 URL
 func (c *Client) GenerateURL(bucketName, objectName string, expires time.Duration) (string, error) {
 	// 检查对象是否存在
-	_, err := c.client.StatObject(context.Background(), bucketName, objectName, minio.StatObjectOptions{})
+	_, err := c.client.StatObject(c.ctx, bucketName, objectName, minio.StatObjectOptions{})
 	if err != nil {
 		return "", fmt.Errorf("对象不存在: %w", err)
 	}
 
 	var reqParams url.Values
 	// 签名
-	presignedURL, err := c.client.PresignedGetObject(context.Background(), bucketName, objectName, expires, reqParams)
+	presignedURL, err := c.client.PresignedGetObject(c.ctx, bucketName, objectName, expires, reqParams)
 	if err != nil {
 		return "", fmt.Errorf("生成签名 URL 失败: %w", err)
 	}
@@ -225,8 +226,6 @@ func (c *Client) GenerateURL(bucketName, objectName string, expires time.Duratio
 
 // ListObjects 列出对象
 func (c *Client) ListObjects(bucketName, prefix string, recursive bool, onlyFolders bool, maxKeys ...int) <-chan minio.ObjectInfo {
-	ctx := context.Background()
-
 	opts := minio.ListObjectsOptions{
 		Prefix:    prefix,
 		Recursive: recursive,
@@ -243,7 +242,7 @@ func (c *Client) ListObjects(bucketName, prefix string, recursive bool, onlyFold
 	go func() {
 		defer close(objects)
 
-		for object := range c.client.ListObjects(ctx, bucketName, opts) {
+		for object := range c.client.ListObjects(c.ctx, bucketName, opts) {
 			if object.Err != nil {
 				objects <- object // 发送错误信息
 				return            // 出错后停止

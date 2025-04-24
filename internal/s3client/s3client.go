@@ -1,7 +1,6 @@
 package s3client
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/minio/minio-go/v7"
@@ -53,7 +52,7 @@ func (c *Client) DeleteObject(bucketName, objectPath string) error {
 	}
 
 	// 使用 minio 客户端删除对象
-	err := c.client.RemoveObject(context.Background(), bucketName, objectPath, minio.RemoveObjectOptions{})
+	err := c.client.RemoveObject(c.ctx, bucketName, objectPath, minio.RemoveObjectOptions{})
 	if err != nil {
 		return fmt.Errorf("删除对象失败: %w", err)
 	}

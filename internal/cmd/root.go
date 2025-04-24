@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,8 +21,8 @@ var rootCmd = &cobra.Command{
 }
 
 // Execute 执行根命令
-func Execute() error {
-	return rootCmd.Execute()
+func Execute(ctx context.Context) error {
+	return rootCmd.ExecuteContext(ctx)
 }
 
 func init() {
@@ -36,6 +37,7 @@ func init() {
 	rootCmd.AddCommand(delCmd)
 	rootCmd.AddCommand(mbCmd)
 	rootCmd.AddCommand(rbCmd)
+	rootCmd.AddCommand(infoCmd)
 
 	// 添加根命令的 PersistentPreRunE 函数
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {

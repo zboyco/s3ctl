@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/minio/minio-go/v7"
 	"github.com/spf13/cobra"
 	"github.com/zboyco/s3ctl/internal/s3client"
 )
@@ -25,7 +26,7 @@ var listCmd = &cobra.Command{
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// 创建 S3 客户端
-		client, err := s3client.NewClient(false)
+		client, err := s3client.NewClient(cmd.Context(), false)
 		if err != nil {
 			return err
 		}
@@ -60,7 +61,12 @@ var listCmd = &cobra.Command{
 		}
 
 		// 列出桶中的对象
-		return listBucketObjects(client, bucketName, prefix, recursive, onlyFolders, showFullPath)
+		err = listBucketObjects(client, bucketName, prefix, recursive, onlyFolders, showFullPath)
+		if minio.ToErrorResponse(err).Code == "NoSuchBucket" {
+			fmt.Printf("存储桶 %s 不存在\n", bucketName)
+			return nil
+		}
+		return err
 	},
 }
 

@@ -17,7 +17,7 @@ var putCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// 创建 S3 客户端
-		client, err := s3client.NewClient(false)
+		client, err := s3client.NewClient(cmd.Context(), false)
 		if err != nil {
 			return err
 		}
