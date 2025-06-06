@@ -3,6 +3,8 @@ package s3client
 import (
 	"context"
 	"fmt"
+	"io"
+	"mime"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -12,6 +14,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/zboyco/s3ctl/internal/config"
+	"golang.org/x/crypto/ssh/terminal"
 )
 
 // Client S3 客户端
@@ -118,7 +121,7 @@ func (c *Client) IsBucketEmpty(bucketName string) (bool, error) {
 
 // UploadFile 上传文件
 func (c *Client) UploadFile(bucketName, filePath, objectName string, isPublic bool) error {
-	fmt.Printf("正在上传文件 %s 到 %s/%s...\n", filePath, bucketName, objectName)
+	fmt.Printf("上传 %s 到 %s/%s...\n", filePath, bucketName, objectName)
 	// 打开文件
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -139,13 +142,16 @@ func (c *Client) UploadFile(bucketName, filePath, objectName string, isPublic bo
 
 	// 设置对象选项
 	opts := minio.PutObjectOptions{
-		ContentType: "application/octet-stream",
+		ContentType: getContentType(filePath),
 	}
 
 	// 如果是公开文件，设置权限
 	if isPublic {
 		opts.UserMetadata = map[string]string{"x-amz-acl": "public-read"}
 	}
+
+	// 添加上传进度跟踪
+	opts.Progress = newProgressReader(fileInfo.Size())
 
 	// 上传文件
 	_, err = c.client.PutObject(
@@ -161,6 +167,151 @@ func (c *Client) UploadFile(bucketName, filePath, objectName string, isPublic bo
 	}
 
 	return nil
+}
+
+// getContentType 根据文件扩展名获取对应的 Content-Type
+func getContentType(filename string) string {
+	ext := strings.ToLower(filepath.Ext(filename))
+	if mimeType := mime.TypeByExtension(ext); mimeType != "" {
+		return mimeType
+	}
+	return "application/octet-stream"
+}
+
+// progressReader 实现进度跟踪
+type progressReader struct {
+	totalSize    int64
+	bytesRead    int64
+	lastPrint    int64
+	printPercent int64
+	minBarWidth  int       // 最小进度条宽度
+	completed    bool      // 标记是否已完成
+	startTime    time.Time // 上传开始时间
+	lastBytes    int64     // 上次统计的字节数
+	lastTime     time.Time // 上次统计的时间
+}
+
+func newProgressReader(totalSize int64) *progressReader {
+	return &progressReader{
+		totalSize:    totalSize,
+		printPercent: 1,  // 每1%打印一次进度
+		minBarWidth:  20, // 最小进度条宽度
+		startTime:    time.Now(),
+		lastTime:     time.Now(),
+	}
+}
+
+func (pr *progressReader) getTerminalWidth() int {
+	// 尝试获取终端宽度
+	if width, err := getTerminalWidth(); err == nil {
+		// 确保不小于最小宽度
+		if width < pr.minBarWidth {
+			return pr.minBarWidth
+		}
+		return width
+	}
+	// 如果获取失败，使用默认宽度
+	return 50
+}
+
+func getTerminalWidth() (int, error) {
+	// 在Unix-like系统上获取终端宽度
+	if fd := int(os.Stdout.Fd()); terminal.IsTerminal(fd) {
+		width, _, err := terminal.GetSize(fd)
+		if err != nil {
+			return 0, err
+		}
+		return width, nil
+	}
+	return 0, fmt.Errorf("not a terminal")
+}
+
+func (pr *progressReader) Read(p []byte) (n int, err error) {
+	// 如果已经完成，直接返回
+	if pr.completed {
+		return 0, io.EOF
+	}
+
+	n, err = len(p), nil
+	pr.bytesRead += int64(n)
+
+	// 计算当前进度百分比
+	percent := int64(float64(pr.bytesRead) / float64(pr.totalSize) * 100)
+
+	// 如果进度达到或超过了下一个打印点
+	if percent >= pr.lastPrint+pr.printPercent || percent == 100 {
+		now := time.Now()
+		elapsed := now.Sub(pr.lastTime).Seconds()
+
+		// 计算上传速度 (bytes/sec)
+		speed := float64(pr.bytesRead-pr.lastBytes) / elapsed
+
+		// 计算剩余时间
+		remainingBytes := pr.totalSize - pr.bytesRead
+		var remainingTime time.Duration
+		if speed > 0 {
+			remainingTime = time.Duration(float64(remainingBytes)/speed) * time.Second
+		}
+
+		// 获取动态宽度，留出空间给百分比和字节数显示
+		barWidth := max(pr.getTerminalWidth()-60, 10)
+
+		// 计算进度条填充长度
+		filled := int(float64(barWidth) * float64(percent) / 100)
+		empty := barWidth - filled
+
+		// 构建进度条字符串
+		bar := "[" + strings.Repeat("=", filled) + strings.Repeat(" ", empty) + "]"
+
+		// 打印进度信息
+		fmt.Printf("\r%s %3d%% (%s/%s) %s/s ETA: %s",
+			bar,
+			percent,
+			formatBytes(pr.bytesRead),
+			formatBytes(pr.totalSize),
+			formatBytes(int64(speed)),
+			formatDuration(remainingTime))
+
+		if percent == 100 {
+			fmt.Println()       // 上传完成后换行
+			pr.completed = true // 标记为已完成
+		}
+		pr.lastPrint = percent
+	}
+	return
+}
+
+// formatDuration 格式化时间为易读格式
+func formatDuration(d time.Duration) string {
+	if d < 0 {
+		return "--:--:--"
+	}
+
+	d = d.Round(time.Second)
+	h := d / time.Hour
+	d -= h * time.Hour
+	m := d / time.Minute
+	d -= m * time.Minute
+	s := d / time.Second
+
+	if h > 0 {
+		return fmt.Sprintf("%02d:%02d:%02d", h, m, s)
+	}
+	return fmt.Sprintf("%02d:%02d", m, s)
+}
+
+// formatBytes 格式化字节数为易读格式
+func formatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
 // UploadDirectory 上传目录
