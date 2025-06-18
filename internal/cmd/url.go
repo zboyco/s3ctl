@@ -16,7 +16,7 @@ var (
 
 var urlCmd = &cobra.Command{
 	Use:   "url [s3://bucket/object]",
-	Short: "生成对象的访问 URL",
+	Short: "生成 s3 对象的访问 URL",
 	Long: `生成指定对象的访问 URL。
 - 指定对象路径时生成访问 URL
 - 可选设置 URL 有效期和签名协议`,

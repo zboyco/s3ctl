@@ -186,7 +186,7 @@ type progressReader struct {
 	printPercent int64
 	minBarWidth  int       // 最小进度条宽度
 	completed    bool      // 标记是否已完成
-	startTime    time.Time // 上传开始时间
+	startTime    time.Time // 开始时间
 	lastBytes    int64     // 上次统计的字节数
 	lastTime     time.Time // 上次统计的时间
 }
@@ -234,7 +234,23 @@ func (pr *progressReader) Read(p []byte) (n int, err error) {
 
 	n, err = len(p), nil
 	pr.bytesRead += int64(n)
+	pr.updateProgress()
+	return
+}
 
+func (pr *progressReader) Write(p []byte) (n int, err error) {
+	// 如果已经完成，直接返回
+	if pr.completed {
+		return 0, io.EOF
+	}
+
+	n = len(p)
+	pr.bytesRead += int64(n)
+	pr.updateProgress()
+	return n, nil
+}
+
+func (pr *progressReader) updateProgress() {
 	// 计算当前进度百分比
 	percent := int64(float64(pr.bytesRead) / float64(pr.totalSize) * 100)
 
@@ -254,7 +270,7 @@ func (pr *progressReader) Read(p []byte) (n int, err error) {
 		}
 
 		// 获取动态宽度，留出空间给百分比和字节数显示
-		barWidth := max(pr.getTerminalWidth()-60, 10)
+		barWidth := max(pr.getTerminalWidth()-58, 10)
 
 		// 计算进度条填充长度
 		filled := int(float64(barWidth) * float64(percent) / 100)
@@ -264,12 +280,11 @@ func (pr *progressReader) Read(p []byte) (n int, err error) {
 		bar := "[" + strings.Repeat("=", filled) + strings.Repeat(" ", empty) + "]"
 
 		// 打印进度信息
-		fmt.Printf("\r%s %3d%% (%s/%s) %s/s ETA: %s",
+		fmt.Printf("\r%s %3d%% %-23s %-12s ETA:%-8s",
 			bar,
 			percent,
-			formatBytes(pr.bytesRead),
-			formatBytes(pr.totalSize),
-			formatBytes(int64(speed)),
+			fmt.Sprintf("(%s/%s)", formatBytes(pr.bytesRead), formatBytes(pr.totalSize)),
+			fmt.Sprintf("%s/s", formatBytes(int64(speed))),
 			formatDuration(remainingTime))
 
 		if percent == 100 {
@@ -278,7 +293,6 @@ func (pr *progressReader) Read(p []byte) (n int, err error) {
 		}
 		pr.lastPrint = percent
 	}
-	return
 }
 
 // formatDuration 格式化时间为易读格式
@@ -356,6 +370,71 @@ func (c *Client) UploadDirectory(bucketName, dirPath, prefix string, isPublic bo
 		// 上传文件
 		return c.UploadFile(bucketName, path, objectName, isPublic)
 	})
+}
+
+// DownloadFile 下载文件
+func (c *Client) DownloadFile(bucketName, objectName, filePath string) error {
+	// 确保目录存在
+	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+		return fmt.Errorf("创建目录失败: %w", err)
+	}
+
+	// 创建文件
+	file, err := os.Create(filePath)
+	if err != nil {
+		return fmt.Errorf("创建文件失败: %w", err)
+	}
+	defer file.Close()
+
+	// 获取对象信息以获取大小
+	objInfo, err := c.client.StatObject(c.ctx, bucketName, objectName, minio.StatObjectOptions{})
+	if err != nil {
+		return fmt.Errorf("获取对象信息失败: %w", err)
+	}
+
+	// 下载对象
+	fmt.Printf("下载 %s/%s 到 %s...\n", bucketName, objectName, filePath)
+	object, err := c.client.GetObject(c.ctx, bucketName, objectName, minio.GetObjectOptions{})
+	if err != nil {
+		return fmt.Errorf("获取对象失败: %w", err)
+	}
+	defer object.Close()
+
+	// 使用进度跟踪
+	progress := newProgressReader(objInfo.Size)
+	_, err = io.Copy(file, io.TeeReader(object, progress))
+	if err != nil {
+		return fmt.Errorf("下载文件失败: %w", err)
+	}
+
+	return nil
+}
+
+// DownloadDirectory 下载目录
+func (c *Client) DownloadDirectory(bucketName, prefix, dirPath string) error {
+	// 列出所有对象
+	objects := c.ListObjects(bucketName, prefix, true, false)
+	for object := range objects {
+		if object.Err != nil {
+			return fmt.Errorf("列出对象失败: %w", object.Err)
+		}
+
+		// 跳过目录标记
+		if strings.HasSuffix(object.Key, "/") {
+			continue
+		}
+
+		// 计算本地文件路径
+		relPath := strings.TrimPrefix(object.Key, prefix)
+		localPath := filepath.Join(dirPath, relPath)
+
+		// 下载文件
+		if err := c.DownloadFile(bucketName, object.Key, localPath); err != nil {
+			return fmt.Errorf("下载文件 %s 失败: %w", object.Key, err)
+		}
+	}
+
+	return nil
 }
 
 // GenerateURL 生成访问 URL

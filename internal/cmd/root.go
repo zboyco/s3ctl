@@ -37,6 +37,7 @@ func init() {
 	rootCmd.AddCommand(mbCmd)
 	rootCmd.AddCommand(rbCmd)
 	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(downloadCmd)
 
 	// 禁用 help 和 completion 命令
 	rootCmd.SetHelpCommand(&cobra.Command{
