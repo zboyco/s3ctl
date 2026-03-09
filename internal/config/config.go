@@ -1,9 +1,11 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"text/template"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/spf13/viper"
 )
 
@@ -14,10 +16,18 @@ type S3Config struct {
 }
 
 type S3ConfigItem struct {
-	Endpoint        string `mapstructure:"endpoint"`
-	AccessKeyID     string `mapstructure:"access_key_id"`
-	SecretAccessKey string `mapstructure:"secret_access_key"`
+	Endpoint        string `mapstructure:"endpoint" validate:"required,url"`
+	AccessKeyID     string `mapstructure:"access_key_id" validate:"required,min=3"`
+	SecretAccessKey string `mapstructure:"secret_access_key" validate:"required,min=8"`
 	UseSSL          bool   `mapstructure:"use_ssl"`
+	Region          string `mapstructure:"region"`
+	Timeout         int    `mapstructure:"timeout" validate:"min=1,max=300"`
+}
+
+// Validate 验证配置项
+func (c *S3ConfigItem) Validate() error {
+	validate := validator.New()
+	return validate.Struct(c)
 }
 
 // GetS3Config 获取 S3 配置
@@ -41,13 +51,53 @@ func GetCurrentS3ConfigItem() (*S3ConfigItem, error) {
 		// 遍历 map 获取第一个配置
 		for name, item := range config.Services {
 			config.Current = name
+			// 支持环境变量覆盖
+			if endpoint := os.Getenv("S3CTL_ENDPOINT"); endpoint != "" {
+				item.Endpoint = endpoint
+			}
+			if accessKey := os.Getenv("S3CTL_ACCESS_KEY"); accessKey != "" {
+				item.AccessKeyID = accessKey
+			}
+			if secretKey := os.Getenv("S3CTL_SECRET_KEY"); secretKey != "" {
+				item.SecretAccessKey = secretKey
+			}
+			if region := os.Getenv("S3CTL_REGION"); region != "" {
+				item.Region = region
+			}
+
+			// 验证配置
+			if err := item.Validate(); err != nil {
+				return nil, fmt.Errorf("配置验证失败: %w", err)
+			}
+
 			return item, nil
 		}
 		// 如果没有任何配置项，返回错误
 		return nil, nil
 	}
 
-	return config.Services[config.Current], nil
+	item := config.Services[config.Current]
+
+	// 支持环境变量覆盖
+	if endpoint := os.Getenv("S3CTL_ENDPOINT"); endpoint != "" {
+		item.Endpoint = endpoint
+	}
+	if accessKey := os.Getenv("S3CTL_ACCESS_KEY"); accessKey != "" {
+		item.AccessKeyID = accessKey
+	}
+	if secretKey := os.Getenv("S3CTL_SECRET_KEY"); secretKey != "" {
+		item.SecretAccessKey = secretKey
+	}
+	if region := os.Getenv("S3CTL_REGION"); region != "" {
+		item.Region = region
+	}
+
+	// 验证配置
+	if err := item.Validate(); err != nil {
+		return nil, fmt.Errorf("配置验证失败: %w", err)
+	}
+
+	return item, nil
 }
 
 // CreateDefaultConfig 创建默认配置文件
@@ -74,8 +124,8 @@ services:
 		return err
 	}
 
-	// 创建配置文件
-	file, err := os.Create(configFile)
+	// 创建配置文件，设置安全权限（仅用户可读写）
+	file, err := os.OpenFile(configFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}

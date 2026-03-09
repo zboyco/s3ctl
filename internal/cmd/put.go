@@ -3,10 +3,10 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/zboyco/s3ctl/internal/s3client"
+	"github.com/zboyco/s3ctl/internal/utils"
 )
 
 var isPublic bool
@@ -27,16 +27,9 @@ var putCmd = &cobra.Command{
 
 		// 解析 S3 路径
 		s3Path := args[1]
-		var bucketName, objectPath string
-		if strings.HasPrefix(s3Path, "s3://") {
-			trimmedInput := strings.TrimPrefix(s3Path, "s3://")
-			parts := strings.SplitN(trimmedInput, "/", 2)
-			bucketName = parts[0]
-			if len(parts) > 1 {
-				objectPath = parts[1]
-			}
-		} else {
-			return fmt.Errorf("无效的 S3 路径格式，请使用 s3://bucketname/newpath/file.jpg")
+		bucketName, objectPath, err := utils.ParseS3Path(s3Path)
+		if err != nil {
+			return err
 		}
 
 		// 判断是文件还是目录

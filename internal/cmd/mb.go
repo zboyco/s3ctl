@@ -1,11 +1,9 @@
 package cmd
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/spf13/cobra"
 	"github.com/zboyco/s3ctl/internal/s3client"
+	"github.com/zboyco/s3ctl/internal/utils"
 )
 
 var mbCmd = &cobra.Command{
@@ -21,20 +19,9 @@ var mbCmd = &cobra.Command{
 
 		// 解析 S3 路径
 		s3Path := args[0]
-		var bucketName string
-		if strings.HasPrefix(s3Path, "s3://") {
-			bucketName = strings.TrimPrefix(s3Path, "s3://")
-			// 移除末尾的 / (如果有)
-			bucketName = strings.TrimSuffix(bucketName, "/")
-			if strings.Contains(bucketName, "/") {
-				return fmt.Errorf("无效的存储桶名称，不能包含 '/'")
-			}
-		} else {
-			return fmt.Errorf("无效的 S3 路径格式，请使用 s3://bucketname")
-		}
-
-		if bucketName == "" {
-			return fmt.Errorf("存储桶名称不能为空")
+		bucketName, err := utils.ParseS3BucketPath(s3Path)
+		if err != nil {
+			return err
 		}
 
 		// 创建存储桶
