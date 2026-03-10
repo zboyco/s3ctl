@@ -2,7 +2,9 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
+	"strings"
 	"text/template"
 
 	"github.com/go-playground/validator/v10"
@@ -16,18 +18,47 @@ type S3Config struct {
 }
 
 type S3ConfigItem struct {
-	Endpoint        string `mapstructure:"endpoint" validate:"required,url"`
+	Endpoint        string `mapstructure:"endpoint" validate:"required"`
 	AccessKeyID     string `mapstructure:"access_key_id" validate:"required,min=3"`
 	SecretAccessKey string `mapstructure:"secret_access_key" validate:"required,min=8"`
 	UseSSL          bool   `mapstructure:"use_ssl"`
 	Region          string `mapstructure:"region"`
-	Timeout         int    `mapstructure:"timeout" validate:"min=1,max=300"`
+	Timeout         int    `mapstructure:"timeout" validate:"omitempty,min=1,max=300"`
 }
 
 // Validate 验证配置项
 func (c *S3ConfigItem) Validate() error {
 	validate := validator.New()
-	return validate.Struct(c)
+	if err := validate.Struct(c); err != nil {
+		return err
+	}
+
+	return validateEndpoint(c.Endpoint)
+}
+
+func validateEndpoint(endpoint string) error {
+	if strings.Contains(endpoint, "://") {
+		return fmt.Errorf("endpoint 不能包含协议头，请仅填写主机名或主机名:端口")
+	}
+
+	endpointURL, err := url.Parse("https://" + endpoint)
+	if err != nil {
+		return fmt.Errorf("endpoint 格式无效: %w", err)
+	}
+
+	if endpointURL.Host == "" {
+		return fmt.Errorf("endpoint 不能为空")
+	}
+
+	if endpointURL.User != nil {
+		return fmt.Errorf("endpoint 不能包含认证信息")
+	}
+
+	if endpointURL.Path != "" || endpointURL.RawQuery != "" || endpointURL.Fragment != "" {
+		return fmt.Errorf("endpoint 只能包含主机名或主机名:端口")
+	}
+
+	return nil
 }
 
 // GetS3Config 获取 S3 配置
